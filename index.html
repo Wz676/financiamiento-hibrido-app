@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Financiamiento Híbrido App</title>
@@ -25,10 +26,20 @@
 
     <template id="inicio.html">
         <ons-page id="page-inicio">
-            <ons-toolbar>
-                <div class="center">Mi Cartera Digital</div>
-                <div class="right">
-                    <ons-toolbar-button><ons-icon icon="md-notifications"></ons-icon></ons-toolbar-button>
+            <ons-toolbar class="custom-toolbar">
+                <div class="left" style="padding-left: 15px; display: flex; align-items: center;">
+                    <img src="https://ui-avatars.com/api/?name=Usuario+VIP&background=4a90e2&color=fff&rounded=true&size=32" alt="Perfil" style="border-radius: 50%; box-shadow: 0 2px 5px rgba(74, 144, 226, 0.3);">
+                </div>
+                
+                <div class="center" style="font-weight: 800; letter-spacing: -0.5px; font-size: 16px;">
+                    Mi <span style="color: var(--accent-color);">Cartera</span>
+                </div>
+                
+                <div class="right" style="padding-right: 10px;">
+                    <ons-toolbar-button style="position: relative;">
+                        <ons-icon icon="md-notifications-none" style="color: var(--text-color); font-size: 22px;"></ons-icon>
+                        <span style="position: absolute; top: 12px; right: 10px; width: 8px; height: 8px; background-color: #ef4444; border-radius: 50%; border: 2px solid #ffffff;"></span>
+                    </ons-toolbar-button>
                 </div>
             </ons-toolbar>
 
@@ -148,33 +159,66 @@
 
     <template id="perfil.html">
         <ons-page id="page-perfil">
-            <ons-toolbar>
-                <div class="center">Mi Perfil y Riesgo</div>
+            <ons-toolbar class="custom-toolbar">
+                <div class="center">Mi Perfil Financiero</div>
             </ons-toolbar>
-            
-            <div style="padding: 20px; text-align: center;">
-                <ons-icon icon="md-shield-check" size="60px" style="color: #28a745; margin-top: 20px;"></ons-icon>
-                <h2 style="margin-top: 10px; font-size: 22px;">KYC Aprobado</h2>
-                <p style="color: gray; font-size: 14px;">Identidad validada y flujo de caja analizado mediante algoritmos alternativos.</p>
-            </div>
 
-            <ons-list style="margin-top: 20px;">
+            <div class="page__content" style="padding: 15px; padding-bottom: 80px;">
+                
+                <div class="perfil-header-tech">
+                    <img src="https://ui-avatars.com/api/?name=Usuario+VIP&background=4a90e2&color=fff&rounded=true&size=64" alt="Avatar">
+                    <div class="perfil-info">
+                        <h2>Usuario VIP</h2>
+                        <p id="kyc-status-badge" class="badge-pending">Identidad no verificada</p>
+                    </div>
+                    <ons-button id="btn-kyc" modifier="quiet" onclick="iniciarKYC()" style="color: var(--accent-color); font-weight: 700;">Verificar</ons-button>
+                </div>
+
+                <div class="scoring-card">
+                    <div class="score-left">
+                        <span style="font-size: 12px; color: var(--text-color-muted); text-transform: uppercase; font-weight: 700;">Score Crediticio</span>
+                        <div id="score-numero" style="font-size: 32px; font-weight: 800; color: var(--text-color); line-height: 1;">750</div>
+                    </div>
+                    <div class="score-right" style="text-align: right;">
+                        <span style="color: #28a745; font-weight: 700; font-size: 14px;">Excelente</span>
+                        <p style="margin: 0; font-size: 11px; color: var(--text-color-muted);">Apto para financiamiento</p>
+                    </div>
+                </div>
+
+                <ons-list-header>Estructura de Financiamiento Activo</ons-list-header>
+                
+                <div class="chart-container" style="background: var(--bg-color-alt); border-radius: 15px; padding: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.03); border: 1px solid var(--border-color); margin-bottom: 20px; position: relative; height: 260px;">
+                    
+                    <canvas id="graficoFinanciamiento"></canvas>
+                    
+                    <div id="chart-center-text" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; pointer-events: none;">
+                        <span style="font-size: 11px; color: var(--text-color-muted);">Total</span><br>
+                        <b id="chart-total-value" style="color: var(--text-color); font-size: 16px;">$0</b>
+                    </div>
+                </div>
+
+                <div id="chart-leyenda" style="margin-top: 15px; border-top: 1px solid var(--border-color); padding-top: 10px;"></div>
+
+                <ons-list-header>Próximos Vencimientos</ons-list-header>
+                <ons-list id="lista-vencimientos" style="background: transparent; margin-bottom: 20px;">
+                    </ons-list>
+
                 <ons-list-header>Configuración del Sistema</ons-list-header>
-                <ons-list-item modifier="chevron" tappable>
-                    <div class="left"><ons-icon icon="md-file-text" style="color: #0a2540;"></ons-icon></div>
-                    <div class="center">Términos y Contratos Inteligentes</div>
-                </ons-list-item>
-                <ons-list-item modifier="chevron" tappable>
-                    <div class="left"><ons-icon icon="md-lock" style="color: #0a2540;"></ons-icon></div>
-                    <div class="center">Privacidad y Seguridad (Cifrado)</div>
-                </ons-list-item>
-            </ons-list>
+                <ons-list style="border-radius: 12px; overflow: hidden; margin-bottom: 25px; background: var(--bg-color-alt); box-shadow: 0 4px 6px rgba(0,0,0,0.03); border: 1px solid var(--border-color);">
+                    <ons-list-item modifier="chevron" tappable>
+                        <div class="left"><ons-icon icon="md-file-text" style="color: var(--accent-color);"></ons-icon></div>
+                        <div class="center" style="font-size: 14px;">Términos de Servicio</div>
+                    </ons-list-item>
+                    <ons-list-item modifier="chevron" tappable>
+                        <div class="left"><ons-icon icon="md-shield-check" style="color: var(--accent-color);"></ons-icon></div>
+                        <div class="center" style="font-size: 14px;">Política de Privacidad</div>
+                    </ons-list-item>
+                </ons-list>
 
-            <div style="padding: 30px 20px; margin-top: 20px;">
-                <ons-button modifier="large" style="background-color: #dc3545;" onclick="resetearApp()">
-                    <ons-icon icon="md-delete"></ons-icon> Borrar Datos y Reiniciar
-                </ons-button>
-                <p style="text-align: center; font-size: 12px; color: gray; margin-top: 10px;">Opciones de desarrollador: Simula el borrado de caché del dispositivo.</p>
+                <section style="margin-bottom: 30px; text-align: center;">
+                    <ons-button modifier="large" style="background-color: #dc3545; color: #ffffff;" onclick="resetearApp()">Cerrar Sesión / Borrar Datos</ons-button>
+                </section>
+                
             </div>
         </ons-page>
     </template>

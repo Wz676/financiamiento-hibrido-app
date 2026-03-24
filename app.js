@@ -1,20 +1,21 @@
 // ==========================================
-// 1. 系统核心状态
+// 1. 系统核心状态 (ESTADO GLOBAL)
 // ==========================================
 let appState = {
-    saldoUSD: 0.00, // 底层永远以 USD 记账
-    transacciones: []
+    saldoUSD: 0.00,
+    transacciones: [],
+    prestamoActivo: null // 用于永久记录用户当前成功的贷款状态
 };
 
-let tasaBCV = 470.35; // 模拟当天官方汇率
-let monedaVista = 'USD'; // 当前界面的显示货币状态 ('USD' 或 'BS')
-let calculoActual = null; // 临时保存当前计算出的方案结果
+let tasaBCV = 36.35; 
+let monedaVista = 'USD'; 
+let calculoActual = null; 
+let vehiculoSeleccionado = null;
 
-// 【重要】粘贴你的 Google Apps Script URL
 const GOOGLE_SHEETS_URL = "https://script.google.com/macros/s/AKfycbwf5gIZ_XQ19y_4jkSrHdtQMzbeFX0qECT62Of5BK0mLmDxsHj2mxAH6lvhSBiR3eZv/exec";
 
 // ==========================================
-// 2. 获取真实的 BCV 实时汇率 (Conexión a API real con Fallback)
+// 2. 获取真实的 BCV 实时汇率 
 // ==========================================
 async function obtenerTasaBCV() {
     try {
@@ -22,17 +23,15 @@ async function obtenerTasaBCV() {
         if (!response.ok) throw new Error('Error en la red');
         const data = await response.json();
         const tasaReal = data.monitors.usd.price; 
-        console.log("Tasa BCV obtenida en tiempo real:", tasaReal);
         return parseFloat(tasaReal);
     } catch (error) {
-        console.warn("API del BCV no disponible. Usando tasa de respaldo.", error);
-        ons.notification.toast('Usando tasa BCV de respaldo por fallo de conexión', { timeout: 3000 });
+        console.warn("API del BCV no disponible.", error);
         return 470.35; // 备用汇率
     }
 }
 
 // ==========================================
-// 3. 智能数据加载与版本兼容 (Migración de datos)
+// 3. 智能数据加载与版本兼容 
 // ==========================================
 function cargarDatos() {
     const datos = localStorage.getItem('ecosistema_data');
@@ -41,9 +40,9 @@ function cargarDatos() {
         if (datosGuardados.saldo !== undefined && datosGuardados.saldoUSD === undefined) {
             appState.saldoUSD = datosGuardados.saldo; 
             appState.transacciones = datosGuardados.transacciones || [];
-            console.log("Migración de datos completada.");
         } else {
             appState = datosGuardados; 
+            if(appState.prestamoActivo === undefined) appState.prestamoActivo = null;
         }
     }
 }
@@ -84,7 +83,7 @@ function actualizarInicio() {
             const signo = tx.tipo === 'ingreso' ? '+' : '-';
             const icono = tx.tipo === 'ingreso' ? 'md-long-arrow-down' : 'md-long-arrow-up';
             
-            const itemHTML = `
+            listaEl.innerHTML += `
                 <ons-list-item>
                     <div class="left"><ons-icon icon="${icono}" style="color: ${color}; background: #f4f4f4; padding: 10px; border-radius: 50%;"></ons-icon></div>
                     <div class="center">
@@ -96,7 +95,6 @@ function actualizarInicio() {
                     </div>
                 </ons-list-item>
             `;
-            listaEl.innerHTML += itemHTML;
         });
     }
 }
@@ -191,11 +189,11 @@ function enviarAGoogleSheets(txData) {
 }
 
 // ==========================================
-// 6. 支出系统 (Transferir y Pagar)
+// 6. 智能支出系统 (Transferir y Pagar)
 // ==========================================
 window.simularTransferencia = function() {
     if (appState.saldoUSD <= 0) {
-        ons.notification.alert('No tienes saldo suficiente para transferir. Por favor, fondea tu cuenta primero.');
+        ons.notification.alert('No tienes saldo suficiente para transferir.');
         return;
     }
     ons.notification.prompt({
@@ -224,22 +222,93 @@ window.simularPago = function() {
         ]
     }).then(function(index) {
         if(index === 3 || index === -1) return;
-        const servicios = ['Cuota de Vehículo', 'Seguro Automotriz', 'Pago en Comercio QR'];
-        pedirMontoEgreso('Pago de Servicio', servicios[index]);
+        
+        // 场景 1：支付汽车月供
+        if (index === 0) {
+            if (!appState.prestamoActivo) {
+                ons.notification.alert('No tienes ningún financiamiento activo.');
+                return;
+            }
+            if (appState.prestamoActivo.cuotasRestantes <= 0) {
+                ons.notification.alert('¡Ya has pagado todas las cuotas!');
+                return;
+            }
+            
+            const montoAPagar = appState.prestamoActivo.cuotaMensual;
+            const msj = `<div style="text-align:left; margin-top:10px;">
+                            <p style="color:gray; font-size:12px; margin:0;">Servicio:</p>
+                            <h4 style="margin:0 0 10px 0;">Mensualidad Vehículo (${appState.prestamoActivo.cuotasRestantes} restantes)</h4>
+                            <p style="color:gray; font-size:12px; margin:0;">Monto a debitar:</p>
+                            <h2 style="color:#4a90e2; margin:0;">$${montoAPagar.toFixed(2)}</h2>
+                         </div>`;
+                         
+            ons.notification.confirm({
+                message: msj,
+                title: 'Confirmar Pago',
+                buttonLabels: ['Cancelar', 'Pagar Ahora']
+            }).then(res => {
+                if(res === 1) {
+                    if(appState.saldoUSD < montoAPagar) {
+                        ons.notification.alert('Saldo insuficiente.'); return;
+                    }
+                    ejecutarEgreso('Pago de Cuota', 'Cuota de Vehículo', montoAPagar);
+                    appState.prestamoActivo.cuotasRestantes -= 1; 
+                    guardarDatos();
+                    if(document.getElementById('page-perfil')) renderizarDashboard();
+                }
+            });
+        } 
+        // 场景 2：支付汽车保险 
+        else if (index === 1) {
+            const montoSeguro = 45.00; 
+            const msjSeguro = `<div style="text-align:left; margin-top:10px;">
+                                <p style="color:gray; font-size:12px; margin:0;">Servicio:</p>
+                                <h4 style="margin:0 0 10px 0;">Seguro Automotriz</h4>
+                                <p style="color:gray; font-size:12px; margin:0;">Monto a debitar:</p>
+                                <h2 style="color:#4a90e2; margin:0;">$${montoSeguro.toFixed(2)}</h2>
+                               </div>`;
+                               
+            ons.notification.confirm({
+                message: msjSeguro,
+                title: 'Confirmar Pago',
+                buttonLabels: ['Cancelar', 'Pagar Ahora']
+            }).then(res => {
+                if(res === 1) {
+                    if(appState.saldoUSD < montoSeguro) {
+                        ons.notification.alert('Saldo insuficiente.'); return;
+                    }
+                    ejecutarEgreso('Pago de Seguro', 'Seguro Automotriz', montoSeguro);
+                }
+            });
+        }
+        // 场景 3：扫码付款
+        else if (index === 2) {
+            ons.notification.prompt({
+                message: `Ingrese el monto a pagar (USD):`,
+                title: 'Pago QR',
+                buttonLabel: 'Confirmar'
+            }).then(input => {
+                const monto = parseFloat(input);
+                if (monto > 0 && monto <= appState.saldoUSD) {
+                    ejecutarEgreso('Pago en Comercio', 'Pago QR', monto);
+                } else if (monto > appState.saldoUSD) {
+                    ons.notification.alert('Saldo insuficiente.');
+                }
+            });
+        }
     });
 };
 
 function pedirMontoEgreso(tipoOperacion, detalle) {
     ons.notification.prompt({
-        message: `Ingrese el monto en <b>Dólares (USD)</b> para:<br><br><span style="color:gray;">${detalle}</span>`,
+        message: `Monto en <b>USD</b> para:<br><span style="color:gray;">${detalle}</span>`,
         title: 'Monto a debitar',
-        buttonLabel: 'Confirmar',
-        cancelable: true
+        buttonLabel: 'Confirmar'
     }).then(function(input) {
         const montoOperacion = parseFloat(input);
         if (montoOperacion > 0) {
             if (montoOperacion > appState.saldoUSD) {
-                ons.notification.alert(`<b>Fondos insuficientes.</b><br>Tu saldo actual es de $${appState.saldoUSD.toFixed(2)} USD.`);
+                ons.notification.alert(`Fondos insuficientes.`);
             } else {
                 ejecutarEgreso(tipoOperacion, detalle, montoOperacion);
             }
@@ -270,11 +339,6 @@ function ejecutarEgreso(tipoOperacion, detalle, montoUSD) {
 // ==========================================
 // 7. 虚拟车库与计算器 (Catálogo y Simulador)
 // ==========================================
-// 修复图片：使用极稳定的高清占位图服务
-// ==========================================
-// 2. BASE DE DATOS DE VEHÍCULOS (虚拟车库)
-// ==========================================
-// 使用了极其稳定的亮色占位图，背景为纯白，文字为强调蓝，完美匹配简约亮色风
 const baseDeDatosVehiculos = [
     { id: 'v1', marca: 'Toyota', modelo: 'Corolla', anio: 2018, precio: 15000, img: 'https://placehold.co/300x200/ffffff/4a90e2?text=Toyota+Corolla' },
     { id: 'v2', marca: 'Ford', modelo: 'Fiesta', anio: 2016, precio: 7500, img: 'https://placehold.co/300x200/ffffff/4a90e2?text=Ford+Fiesta' },
@@ -282,7 +346,6 @@ const baseDeDatosVehiculos = [
     { id: 'v4', marca: 'Chevrolet', modelo: 'Spark', anio: 2015, precio: 5000, img: 'https://placehold.co/300x200/ffffff/4a90e2?text=Chevrolet+Spark' }
 ];
 
-let vehiculoSeleccionado = null;
 
 function renderizarCatalogo() {
     const contenedor = document.getElementById('catalogo-vehiculos');
@@ -314,9 +377,12 @@ function renderizarCatalogo() {
 window.seleccionarVehiculo = function(auto) {
     vehiculoSeleccionado = auto;
     baseDeDatosVehiculos.forEach(v => {
-        document.getElementById(`tarjeta-${v.id}`).style.border = '2px solid transparent';
+        const t = document.getElementById(`tarjeta-${v.id}`);
+        if(t) t.style.border = '2px solid transparent';
     });
-    document.getElementById(`tarjeta-${auto.id}`).style.border = '2px solid #00d4ff';
+    const tSel = document.getElementById(`tarjeta-${auto.id}`);
+    if(tSel) tSel.style.border = '2px solid #00d4ff';
+    
     document.getElementById('monto-vehiculo').value = auto.precio;
     ons.notification.toast(`Seleccionaste: ${auto.marca} ${auto.modelo}`, { timeout: 1000 });
     calcularEcosistema();
@@ -325,33 +391,27 @@ window.seleccionarVehiculo = function(auto) {
 window.limpiarSeleccion = function() {
     vehiculoSeleccionado = null;
     baseDeDatosVehiculos.forEach(v => {
-        const tarjeta = document.getElementById(`tarjeta-${v.id}`);
-        if(tarjeta) tarjeta.style.border = '2px solid transparent';
+        const t = document.getElementById(`tarjeta-${v.id}`);
+        if(t) t.style.border = '2px solid transparent';
     });
 };
 
-// 【核心修复】：加入了下拉选择期数(mesesSelect)的动态算法
 window.calcularEcosistema = function() {
     const inputMonto = document.getElementById('monto-vehiculo').value;
     const montoVehiculo = parseFloat(inputMonto);
     
-    // 如果没有输入有效金额，静默返回，不打断滑块
     if (!montoVehiculo || montoVehiculo < 1000) return;
 
-    const porcentajeEntrada = parseFloat(document.getElementById('rango-entrada').value); 
+    const entradaEl = document.getElementById('rango-entrada');
+    const porcentajeEntrada = entradaEl ? parseFloat(entradaEl.value) : 30; 
     
-    // 获取用户选择的期数 (12, 24, 36, 48)
     const mesesSelect = document.getElementById('plazo-meses');
     const meses = mesesSelect ? parseInt(mesesSelect.value) : 24; 
     
-    // 1. 计算首付
     const montoEntrada = montoVehiculo * (porcentajeEntrada / 100);
-    // 2. 计算期末尾款 (车辆总价值的 30%)
     const cuotaBalloon = montoVehiculo * 0.30;
-    // 3. 计算本金
     const capitalFinanciar = montoVehiculo - montoEntrada - cuotaBalloon;
     
-    // 4. 动态计算利息 (期数越长利息越高，假设每月1%)
     const tasaInteresTotal = meses * 0.01; 
     const totalFinanciado = capitalFinanciar * (1 + tasaInteresTotal);
     const cuotaMensualUSD = totalFinanciado / meses;
@@ -364,15 +424,23 @@ window.calcularEcosistema = function() {
         cuotaMensualUSD: cuotaMensualUSD
     };
 
-    document.getElementById('res-entrada').innerText = `$${montoEntrada.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
-    document.getElementById('res-balloon').innerText = `$${cuotaBalloon.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
-    document.getElementById('res-cuota-usd').innerText = `$${cuotaMensualUSD.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
-    document.getElementById('res-cuota-bs').innerText = `Bs ${cuotaMensualBS.toLocaleString('es-VE', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+    const reEnt = document.getElementById('res-entrada');
+    if(reEnt) reEnt.innerText = `$${montoEntrada.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+    
+    const reBal = document.getElementById('res-balloon');
+    if(reBal) reBal.innerText = `$${cuotaBalloon.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+    
+    const reUsd = document.getElementById('res-cuota-usd');
+    if(reUsd) reUsd.innerText = `$${cuotaMensualUSD.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+    
+    const reBs = document.getElementById('res-cuota-bs');
+    if(reBs) reBs.innerText = `Bs ${cuotaMensualBS.toLocaleString('es-VE', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
 
     const textoMeses = document.getElementById('texto-meses-resultado');
     if(textoMeses) textoMeses.innerText = `(Financiado a ${meses} meses)`;
 
-    document.getElementById('btn-pagar-entrada').style.display = 'block';
+    const btnPagar = document.getElementById('btn-pagar-entrada');
+    if(btnPagar) btnPagar.style.display = 'block';
 };
 
 window.pagarEntradaDirecto = function() {
@@ -381,7 +449,7 @@ window.pagarEntradaDirecto = function() {
 
     if (appState.saldoUSD < montoRequerido) {
         ons.notification.confirm({
-            message: `Tu saldo actual ($${appState.saldoUSD.toFixed(2)}) es insuficiente para pagar la entrada de $${montoRequerido.toLocaleString()}.<br><br>¿Deseas ir a fondear tu cartera?`,
+            message: `Saldo insuficiente para pagar la entrada de $${montoRequerido.toLocaleString()}.<br>¿Ir a fondear?`,
             title: 'Fondos Insuficientes',
             buttonLabels: ['Cancelar', 'Ir a Fondear']
         }).then(function(res) {
@@ -394,24 +462,157 @@ window.pagarEntradaDirecto = function() {
     }
 
     ons.notification.confirm({
-        message: `Se debitarán <b>$${montoRequerido.toLocaleString()}</b> de tu cartera digital para reservar el vehículo mediante contrato inteligente.`,
+        message: `Se debitarán <b>$${montoRequerido.toLocaleString()}</b> de tu cartera para reservar el vehículo.`,
         title: 'Confirmar Reserva',
         buttonLabels: ['Cancelar', 'Aprobar Contrato']
     }).then(function(res) {
         if (res === 1) {
-            ejecutarEgreso('Contrato Inteligente', 'Pago de Entrada (Vehículo)', montoRequerido);
-            setTimeout(() => { document.querySelector('ons-tabbar').setActiveTab(0); }, 2000);
+            ejecutarEgreso('Contrato Inteligente', 'Pago de Entrada', montoRequerido);
+            
+            const mesesSelect = document.getElementById('plazo-meses');
+            appState.prestamoActivo = {
+                montoTotal: calculoActual.montoVehiculo,
+                entrada: calculoActual.montoEntrada,
+                balloon: calculoActual.cuotaBalloon,
+                cuotaMensual: calculoActual.cuotaMensualUSD,
+                cuotasRestantes: mesesSelect ? parseInt(mesesSelect.value) : 24
+            };
+            guardarDatos();
+            
+            setTimeout(() => {
+                document.querySelector('ons-tabbar').setActiveTab(2);
+                renderizarDashboard(); 
+            }, 2000);
         }
     });
 };
 
 // ==========================================
-// 8. 初始化与事件监听 (Inicialización)
+// 8. DASHBOARD & KYC (个人看板与图表)
+// ==========================================
+let graficoInstancia = null; 
+
+window.iniciarKYC = function() {
+    ons.notification.confirm({
+        message: 'Para desbloquear el financiamiento, necesitamos escanear su identidad. ¿Comenzar?',
+        title: 'KYC',
+        buttonLabels: ['Más tarde', 'Escanear']
+    }).then(function(res) {
+        if (res === 1) {
+            ons.notification.toast('Analizando biometría...', { timeout: 2500 });
+            setTimeout(() => {
+                const badge = document.getElementById('kyc-status-badge');
+                const btn = document.getElementById('btn-kyc');
+                if(badge) {
+                    badge.className = 'badge-verified';
+                    badge.innerText = 'Identidad Verificada';
+                }
+                if(btn) btn.style.display = 'none'; 
+                
+                const score = document.getElementById('score-numero');
+                if(score) score.innerText = '820'; 
+                
+                ons.notification.alert({ title: '¡Aprobado!', message: 'Límite de crédito aumentado.' });
+            }, 2500);
+        }
+    });
+};
+
+function renderizarDashboard() {
+    const ctx = document.getElementById('graficoFinanciamiento');
+    if (!ctx) return;
+    
+    if (graficoInstancia) graficoInstancia.destroy();
+
+    let datosGrafico = [];
+    let montoTotal = 0;
+    const leyendaEl = document.getElementById('chart-leyenda');
+    const lista = document.getElementById('lista-vencimientos');
+
+    if (appState.prestamoActivo) {
+        const p = appState.prestamoActivo;
+        const sumatoriaCuotas = p.cuotaMensual * p.cuotasRestantes;
+        datosGrafico = [p.entrada, sumatoriaCuotas, p.balloon];
+        montoTotal = p.montoTotal;
+        
+        if(leyendaEl) {
+            leyendaEl.innerHTML = `
+                <div style="display:flex; justify-content:space-between; font-size:11px; margin-bottom:5px;">
+                    <span style="color:#28a745; font-weight:700;">● Entrada</span>
+                    <span style="font-weight:700;">$${p.entrada.toLocaleString('en-US', {minimumFractionDigits:2})}</span>
+                </div>
+                <div style="display:flex; justify-content:space-between; font-size:11px; margin-bottom:5px;">
+                    <span style="color:#4a90e2; font-weight:700;">● Cuotas (${p.cuotasRestantes} meses)</span>
+                    <span style="font-weight:700;">$${sumatoriaCuotas.toLocaleString('en-US', {minimumFractionDigits:2})}</span>
+                </div>
+                <div style="display:flex; justify-content:space-between; font-size:11px;">
+                    <span style="color:#94a3b8; font-weight:700;">● Balloon</span>
+                    <span style="font-weight:700;">$${p.balloon.toLocaleString('en-US', {minimumFractionDigits:2})}</span>
+                </div>
+            `;
+        }
+
+        if(lista) {
+            lista.innerHTML = `
+                <ons-list-item>
+                    <div class="left"><ons-icon icon="md-car" style="color: #4a90e2;"></ons-icon></div>
+                    <div class="center">
+                        <span class="list-item__title" style="font-weight: 600; font-size: 13px;">Mensualidad Vehículo</span>
+                        <span class="list-item__subtitle" style="font-size: 11px; color:#f59e0b;">Vence en 15 días</span>
+                    </div>
+                    <div class="right" style="font-weight: 700;">$${p.cuotaMensual.toFixed(2)}</div>
+                </ons-list-item>
+                <ons-list-item>
+                    <div class="left"><ons-icon icon="md-shield-check" style="color: #28a745;"></ons-icon></div>
+                    <div class="center">
+                        <span class="list-item__title" style="font-weight: 600; font-size: 13px;">Seguro Automotriz</span>
+                        <span class="list-item__subtitle" style="font-size: 11px;">Renovación mensual</span>
+                    </div>
+                    <div class="right" style="font-weight: 700;">$45.00</div>
+                </ons-list-item>
+            `;
+        }
+    } else {
+        datosGrafico = [1, 1, 1]; 
+        document.getElementById('chart-total-value').innerText = '$0';
+        if(leyendaEl) leyendaEl.innerHTML = '';
+        if(lista) lista.innerHTML = `<div style="text-align:center; padding: 20px; color: gray; font-size: 12px;">No tienes servicios activos.</div>`;
+    }
+
+    if (appState.prestamoActivo) {
+        document.getElementById('chart-total-value').innerText = `$${montoTotal.toLocaleString()}`;
+    }
+
+    graficoInstancia = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+            labels: ['Entrada', 'Cuotas', 'Balloon'],
+            datasets: [{
+                data: datosGrafico,
+                backgroundColor: appState.prestamoActivo ? ['#28a745', '#4a90e2', '#94a3b8'] : ['#edf2f7', '#edf2f7', '#edf2f7'],
+                borderWidth: 0,
+                hoverOffset: 4
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            cutout: '75%', 
+            plugins: {
+                legend: { display: false } 
+            }
+        }
+    });
+}
+
+// ==========================================
+// 9. INICIALIZACIÓN Y EVENTOS (系统启动引擎)
 // ==========================================
 document.addEventListener('init', async function(event) {
     if (event.target.id === 'page-inicio') {
         tasaBCV = await obtenerTasaBCV(); 
-        document.getElementById('tasa-bcv-display').innerText = tasaBCV.toFixed(2); 
+        const tasaDisplay = document.getElementById('tasa-bcv-display');
+        if(tasaDisplay) tasaDisplay.innerText = tasaBCV.toFixed(2); 
         cargarDatos();
         actualizarInicio();
     }
@@ -421,18 +622,21 @@ document.addEventListener('init', async function(event) {
         const tasaEl = document.getElementById('tasa-bcv-simulador');
         if(tasaEl) tasaEl.innerText = tasaBCV.toFixed(2);
     }
+    
+    if (event.target.id === 'page-perfil') {
+        renderizarDashboard();
+    }
 });
 
-// 系统一键重置
 window.resetearApp = function() {
     ons.notification.confirm({
-        message: '¿Estás seguro de que deseas borrar todo tu historial y volver a $0.00? Esta acción no se puede deshacer.',
-        title: 'Advertencia de Sistema',
-        buttonLabels: ['Cancelar', 'Sí, borrar todo']
+        message: '¿Borrar todo el historial y volver a $0.00?',
+        title: 'Advertencia',
+        buttonLabels: ['Cancelar', 'Borrar']
     }).then(function(res) {
         if (res === 1) { 
             localStorage.removeItem('ecosistema_data');
-            ons.notification.toast('Datos borrados exitosamente. Reiniciando...', { timeout: 1500 });
+            ons.notification.toast('Borrando...', { timeout: 1500 });
             setTimeout(() => { location.reload(); }, 1500);
         }
     });
