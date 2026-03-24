@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Financiamiento Híbrido App</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
 
     <link rel="stylesheet" href="https://unpkg.com/onsenui/css/onsenui.css">
     <link rel="stylesheet" href="https://unpkg.com/onsenui/css/onsen-css-components.min.css">
@@ -15,7 +16,7 @@
 <body>
 
     <ons-page id="main-app">
-        <ons-tabbar swipeable position="bottom">
+        <ons-tabbar position="bottom">
             <ons-tab page="inicio.html" label="Inicio" icon="md-home" active></ons-tab>
             <ons-tab page="simulador.html" label="Simulador" icon="md-car"></ons-tab>
             <ons-tab page="perfil.html" label="Scoring" icon="md-shield-check"></ons-tab>
@@ -34,7 +35,9 @@
             <div style="background: linear-gradient(135deg, #0a2540, #00d4ff); color: white; padding: 30px 20px; text-align: center; border-radius: 0 0 20px 20px; box-shadow: 0 4px 10px rgba(0,0,0,0.15);">
                 <p style="margin: 0; font-size: 14px; opacity: 0.9;">Saldo Disponible</p>
                 
-                <h1 id="saldo-actual" onclick="toggleMoneda()" style="margin: 10px 0; font-size: 40px; letter-spacing: 1px; cursor: pointer;">$0.00</h1>
+                <div class="saldo-capsula" onclick="toggleMoneda()">
+                    <h1 id="saldo-actual">$0.00</h1>
+                </div>
                 
                 <p style="margin: 0; font-size: 13px; cursor: pointer; color: #e0f7fa;" onclick="toggleMoneda()">
                     <ons-icon icon="md-swap"></ons-icon> Cambiar a <span id="texto-moneda">Bolívares</span>

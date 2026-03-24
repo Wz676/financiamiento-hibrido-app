@@ -271,11 +271,15 @@ function ejecutarEgreso(tipoOperacion, detalle, montoUSD) {
 // 7. 虚拟车库与计算器 (Catálogo y Simulador)
 // ==========================================
 // 修复图片：使用极稳定的高清占位图服务
+// ==========================================
+// 2. BASE DE DATOS DE VEHÍCULOS (虚拟车库)
+// ==========================================
+// 使用了极其稳定的亮色占位图，背景为纯白，文字为强调蓝，完美匹配简约亮色风
 const baseDeDatosVehiculos = [
-    { id: 'v1', marca: 'Toyota', modelo: 'Corolla', anio: 2018, precio: 15000, img: 'https://placehold.co/300x200/0a2540/FFF?text=Toyota+Corolla' },
-    { id: 'v2', marca: 'Ford', modelo: 'Fiesta', anio: 2016, precio: 7500, img: 'https://placehold.co/300x200/0a2540/FFF?text=Ford+Fiesta' },
-    { id: 'v3', marca: 'Hyundai', modelo: 'Tucson', anio: 2020, precio: 22000, img: 'https://placehold.co/300x200/0a2540/FFF?text=Hyundai+Tucson' },
-    { id: 'v4', marca: 'Chevrolet', modelo: 'Spark', anio: 2015, precio: 5000, img: 'https://placehold.co/300x200/0a2540/FFF?text=Chevrolet+Spark' }
+    { id: 'v1', marca: 'Toyota', modelo: 'Corolla', anio: 2018, precio: 15000, img: 'https://placehold.co/300x200/ffffff/4a90e2?text=Toyota+Corolla' },
+    { id: 'v2', marca: 'Ford', modelo: 'Fiesta', anio: 2016, precio: 7500, img: 'https://placehold.co/300x200/ffffff/4a90e2?text=Ford+Fiesta' },
+    { id: 'v3', marca: 'Hyundai', modelo: 'Tucson', anio: 2020, precio: 22000, img: 'https://placehold.co/300x200/ffffff/4a90e2?text=Hyundai+Tucson' },
+    { id: 'v4', marca: 'Chevrolet', modelo: 'Spark', anio: 2015, precio: 5000, img: 'https://placehold.co/300x200/ffffff/4a90e2?text=Chevrolet+Spark' }
 ];
 
 let vehiculoSeleccionado = null;
