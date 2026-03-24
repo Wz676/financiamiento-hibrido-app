@@ -72,9 +72,74 @@
             <ons-toolbar>
                 <div class="center">Simulador Híbrido</div>
             </ons-toolbar>
+            
             <div style="padding: 20px;">
-                <p>Aquí construiremos el motor de cálculo dual.</p>
-                </div>
+                <p style="color: gray; font-size: 14px; text-align: center;">Tasa BCV Actual: <span id="tasa-bcv-simulador" style="color: #00d4ff; font-weight: bold;">Cargando...</span></p>
+
+                <ons-list style="margin-top: 20px; border-radius: 8px;">
+                    <ons-list-header>Selecciona un Vehículo (Catálogo Digital)</ons-list-header>
+                    <div id="catalogo-vehiculos" style="display: flex; overflow-x: auto; padding: 15px; gap: 15px; background: #f9f9f9;"></div>
+
+                    <ons-list-header style="margin-top: 10px;">O ingresa el valor manualmente</ons-list-header>
+                    <ons-list-item>
+                        <div class="center">
+                            <ons-input id="monto-vehiculo" placeholder="Valor del Vehículo (USD)" type="number" modifier="underbar" style="width: 100%;" oninput="limpiarSeleccion(); calcularEcosistema();"></ons-input>
+                        </div>
+                    </ons-list-item>
+
+                    <ons-list-item>
+                        <div class="center" style="flex-direction: column; align-items: flex-start;">
+                            <span style="font-size: 14px; color: #333;">Entrada Flexible (30% - 50%)</span>
+                            <ons-range id="rango-entrada" min="30" max="50" value="30" style="width: 100%; margin-top: 10px;" 
+                                oninput="document.getElementById('porcentaje-entrada').innerText = this.value; calcularEcosistema();">
+                            </ons-range>
+                            <div style="width: 100%; text-align: right; font-weight: bold; color: #0a2540;"><span id="porcentaje-entrada">30</span>%</div>
+                        </div>
+                    </ons-list-item>
+
+                    <ons-list-item>
+                        <div class="center" style="flex-direction: column; align-items: flex-start;">
+                            <span style="font-size: 14px; color: #333;">Plazo de Financiamiento</span>
+                            <ons-select id="plazo-meses" style="width: 100%; margin-top: 5px;" onchange="calcularEcosistema()">
+                                <option value="12">12 Meses</option>
+                                <option value="24" selected>24 Meses</option>
+                                <option value="36">36 Meses</option>
+                                <option value="48">48 Meses</option>
+                            </ons-select>
+                        </div>
+                    </ons-list-item>
+                </ons-list>
+
+                <ons-list style="margin-top: 20px; border-radius: 8px;">
+                    <ons-list-header>Estructura Híbrida de Financiamiento</ons-list-header>
+                    <ons-list-item>
+                        <div class="left">Pago Inicial (Fiat/Cripto):</div>
+                        <div class="right" id="res-entrada" style="font-weight: bold;">$0.00</div>
+                    </ons-list-item>
+                    <ons-list-item>
+                        <div class="left">Cuota Balloon (30% final):</div>
+                        <div class="right" id="res-balloon" style="color: #00d4ff; font-weight: bold;">$0.00</div>
+                    </ons-list-item>
+                    <ons-list-item>
+                        <div class="left" style="flex-direction: column; align-items: flex-start; justify-content: center;">
+                            <span>Cuota Mensual Indexada:</span>
+                            <span id="texto-meses-resultado" style="font-size: 11px; color: gray;">(Financiado a 24 meses)</span>
+                        </div>
+                        <div class="right" style="text-align: right;">
+                            <div id="res-cuota-usd" style="color: #0a2540; font-weight: bold; font-size: 16px;">$0.00</div>
+                            <div id="res-cuota-bs" style="color: gray; font-size: 12px;">Bs 0.00</div>
+                        </div>
+                    </ons-list-item>
+                </ons-list>
+
+                <section style="margin: 30px 0; text-align: center;">
+                    <ons-button onclick="calcularEcosistema()" modifier="large" style="background-color: #0a2540;">Recalcular</ons-button>
+                </section>
+                
+                <section id="btn-pagar-entrada" style="margin: 15px 0; text-align: center; display: none;">
+                    <ons-button onclick="pagarEntradaDirecto()" modifier="large" style="background-color: #28a745;">Pagar Entrada y Reservar</ons-button>
+                </section>
+            </div>
         </ons-page>
     </template>
 

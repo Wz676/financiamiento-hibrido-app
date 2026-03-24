@@ -1,50 +1,49 @@
+// ==========================================
 // 1. 系统核心状态
+// ==========================================
 let appState = {
     saldoUSD: 0.00, // 底层永远以 USD 记账
     transacciones: []
 };
 
-let tasaBCV = 36.35; // 模拟当天官方汇率
+let tasaBCV = 470.35; // 模拟当天官方汇率
 let monedaVista = 'USD'; // 当前界面的显示货币状态 ('USD' 或 'BS')
+let calculoActual = null; // 临时保存当前计算出的方案结果
 
 // 【重要】粘贴你的 Google Apps Script URL
 const GOOGLE_SHEETS_URL = "https://script.google.com/macros/s/AKfycbwf5gIZ_XQ19y_4jkSrHdtQMzbeFX0qECT62Of5BK0mLmDxsHj2mxAH6lvhSBiR3eZv/exec";
 
+// ==========================================
 // 2. 获取真实的 BCV 实时汇率 (Conexión a API real con Fallback)
+// ==========================================
 async function obtenerTasaBCV() {
     try {
-        // 请求委内瑞拉社区常用的开源汇率 API
         const response = await fetch('https://pydolarvenezuela-api.vercel.app/api/v1/dollar/page?page=bcv');
-        
         if (!response.ok) throw new Error('Error en la red');
-        
         const data = await response.json();
-        const tasaReal = data.monitors.usd.price; // 获取返回的 USD 价格
-        
+        const tasaReal = data.monitors.usd.price; 
         console.log("Tasa BCV obtenida en tiempo real:", tasaReal);
         return parseFloat(tasaReal);
-        
     } catch (error) {
-        // 容灾机制：如果没网或者 API 挂了，使用这个备用数字，保证系统不崩溃
         console.warn("API del BCV no disponible. Usando tasa de respaldo.", error);
         ons.notification.toast('Usando tasa BCV de respaldo por fallo de conexión', { timeout: 3000 });
-        return 475; // 你可以手动修改这里的备用汇率
+        return 470.35; // 备用汇率
     }
 }
 
+// ==========================================
 // 3. 智能数据加载与版本兼容 (Migración de datos)
+// ==========================================
 function cargarDatos() {
     const datos = localStorage.getItem('ecosistema_data');
     if (datos) {
         let datosGuardados = JSON.parse(datos);
-        
-        // 检查是不是旧版本的数据（如果有 'saldo' 但没有 'saldoUSD'）
         if (datosGuardados.saldo !== undefined && datosGuardados.saldoUSD === undefined) {
-            appState.saldoUSD = datosGuardados.saldo; // 把旧资产转移到新变量
+            appState.saldoUSD = datosGuardados.saldo; 
             appState.transacciones = datosGuardados.transacciones || [];
             console.log("Migración de datos completada.");
         } else {
-            appState = datosGuardados; // 正常加载新版数据
+            appState = datosGuardados; 
         }
     }
 }
@@ -53,18 +52,18 @@ function guardarDatos() {
     localStorage.setItem('ecosistema_data', JSON.stringify(appState));
 }
 
-// 4. 一键切换货币显示
+// ==========================================
+// 4. 钱包基础功能 (UI与切换)
+// ==========================================
 window.toggleMoneda = function() {
     monedaVista = monedaVista === 'USD' ? 'BS' : 'USD';
     document.getElementById('texto-moneda').innerText = monedaVista === 'USD' ? 'Bolívares' : 'Dólares';
     actualizarInicio();
 };
 
-// 5. 更新 UI (智能折算双币)
 function actualizarInicio() {
     const saldoEl = document.getElementById('saldo-actual');
     if(saldoEl) {
-        // 如果选择看 Bs，就把底层的 USD 乘以汇率
         let saldoMostrar = monedaVista === 'USD' ? appState.saldoUSD : (appState.saldoUSD * tasaBCV);
         let simbolo = monedaVista === 'USD' ? '$' : 'Bs ';
         saldoEl.innerText = `${simbolo}${saldoMostrar.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
@@ -85,7 +84,6 @@ function actualizarInicio() {
             const signo = tx.tipo === 'ingreso' ? '+' : '-';
             const icono = tx.tipo === 'ingreso' ? 'md-long-arrow-down' : 'md-long-arrow-up';
             
-            // 列表始终显示交易时的基础价值 (USD)，但标注原支付方式
             const itemHTML = `
                 <ons-list-item>
                     <div class="left"><ons-icon icon="${icono}" style="color: ${color}; background: #f4f4f4; padding: 10px; border-radius: 50%;"></ons-icon></div>
@@ -103,7 +101,9 @@ function actualizarInicio() {
     }
 }
 
-// 6. 区分本币/外币的充值菜单
+// ==========================================
+// 5. 充值与交易核心逻辑 (Fondeo)
+// ==========================================
 window.simularFondeo = function() {
     ons.openActionSheet({
         title: 'Seleccione un método de pago',
@@ -118,7 +118,6 @@ window.simularFondeo = function() {
         ]
     }).then(function(index) {
         if(index === 5 || index === -1) return;
-        
         const metodos = [
             {nombre: 'Pago Móvil', moneda: 'BS'},
             {nombre: 'Tarjeta Nacional', moneda: 'BS'},
@@ -130,10 +129,8 @@ window.simularFondeo = function() {
     });
 };
 
-// 7. 智能输入框 (带即时汇率折算提示)
 function pedirMonto(metodoObj) {
     let monedaTexto = metodoObj.moneda === 'BS' ? 'Bolívares (Bs)' : 'Dólares (USD)';
-    
     ons.notification.prompt({
         message: `Ingrese el monto en <b>${monedaTexto}</b>:`,
         title: `Fondeo: ${metodoObj.nombre}`,
@@ -142,11 +139,8 @@ function pedirMonto(metodoObj) {
     }).then(function(input) {
         const montoOriginal = parseFloat(input);
         if (montoOriginal > 0) {
-            
-            // 如果用户输入的是玻利瓦尔，弹出折算确认框
             if (metodoObj.moneda === 'BS') {
                 let montoConvertidoUSD = montoOriginal / tasaBCV;
-                
                 ons.notification.confirm({
                     message: `Tasa BCV: <b>${tasaBCV}</b><br><br>Monto: Bs ${montoOriginal.toLocaleString()}<br>Acreditado en billetera: <b style="color:#28a745;">$${montoConvertidoUSD.toFixed(2)}</b>`,
                     title: 'Confirmar Conversión',
@@ -155,49 +149,40 @@ function pedirMonto(metodoObj) {
                     if (res === 1) ejecutarTransaccion(metodoObj.nombre, montoConvertidoUSD);
                 });
             } else {
-                // 如果直接输入美元，无需折算直接入账
                 ejecutarTransaccion(metodoObj.nombre, montoOriginal);
             }
         }
     });
 }
 
-// 8. 执行交易并保存
 function ejecutarTransaccion(metodoNombre, montoUSD) {
     ons.notification.toast(`Procesando pago vía ${metodoNombre}...`, { timeout: 1500 });
-    
     setTimeout(() => {
         const nuevaTx = {
             id: 'TXN-' + Math.floor(Math.random() * 1000000),
             tipo: 'ingreso',
             metodo: metodoNombre,
             concepto: 'Fondeo de Billetera',
-            montoUSD: montoUSD, // 永远保存USD
+            montoUSD: montoUSD,
             fecha: new Date().toLocaleDateString()
         };
-        
         appState.saldoUSD += montoUSD;
         appState.transacciones.push(nuevaTx);
-        
         guardarDatos();
         actualizarInicio();
         enviarAGoogleSheets(nuevaTx);
-        
         ons.notification.toast('¡Fondeo exitoso!', { timeout: 2000, animation: 'ascend' });
     }, 1500);
 }
 
 function enviarAGoogleSheets(txData) {
     if(!GOOGLE_SHEETS_URL || GOOGLE_SHEETS_URL.includes("在这里粘贴")) return;
-    
-    // 为了表格更好看，我们将交易数据压平发送
     const dataAEnviar = {
         id: txData.id,
         metodo: txData.metodo,
         concepto: txData.concepto,
         monto: txData.montoUSD
     };
-
     fetch(GOOGLE_SHEETS_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -205,71 +190,29 @@ function enviarAGoogleSheets(txData) {
     }).catch(error => console.error("Error GSheets:", error));
 }
 
-// 9. 初始化 (加载汇率、恢复数据)
-document.addEventListener('init', async function(event) {
-    if (event.target.id === 'page-inicio') {
-        tasaBCV = await obtenerTasaBCV(); // 等待汇率加载
-        document.getElementById('tasa-bcv-display').innerText = tasaBCV.toFixed(2); // 显示在界面上
-        
-        cargarDatos();
-        actualizarInicio();
-    }
-});
-
-// 10. 系统级一键重置 (Borrar Datos de Usuario)
-window.resetearApp = function() {
-    ons.notification.confirm({
-        message: '¿Estás seguro de que deseas borrar todo tu historial y volver a $0.00? Esta acción no se puede deshacer.',
-        title: 'Advertencia de Sistema',
-        buttonLabels: ['Cancelar', 'Sí, borrar todo']
-    }).then(function(res) {
-        if (res === 1) { // 如果用户点击了“Sí, borrar todo”
-            // 彻底清除浏览器的本地存储缓存
-            localStorage.removeItem('ecosistema_data');
-            
-            // 弹出提示框
-            ons.notification.toast('Datos borrados exitosamente. Reiniciando...', { timeout: 1500 });
-            
-            // 1.5秒后强制刷新整个网页，让系统回到“出厂设置”
-            setTimeout(() => {
-                location.reload(); 
-            }, 1500);
-        }
-    });
-};
-
 // ==========================================
-// MÓDULOS DE EGRESO (TRANSFERIR Y PAGAR)
+// 6. 支出系统 (Transferir y Pagar)
 // ==========================================
-
-// 1. 模块：模拟转账 (Transferir)
 window.simularTransferencia = function() {
-    // 拦截：如果没有钱，直接拒绝
     if (appState.saldoUSD <= 0) {
         ons.notification.alert('No tienes saldo suficiente para transferir. Por favor, fondea tu cuenta primero.');
         return;
     }
-
     ons.notification.prompt({
         message: 'Ingrese el correo o teléfono del destinatario:',
         title: 'Transferir Fondos',
         buttonLabel: 'Siguiente',
         cancelable: true
     }).then(function(destinatario) {
-        if (destinatario) {
-            pedirMontoEgreso('Transferencia a', destinatario);
-        }
+        if (destinatario) pedirMontoEgreso('Transferencia a', destinatario);
     });
 };
 
-// 2. 模块：模拟支付 (Pagar)
 window.simularPago = function() {
     if (appState.saldoUSD <= 0) {
         ons.notification.alert('No tienes saldo suficiente para realizar pagos.');
         return;
     }
-
-    // 弹出一个精美的底部菜单让用户选择支付场景
     ons.openActionSheet({
         title: 'Seleccione un servicio a pagar',
         cancelable: true,
@@ -281,13 +224,11 @@ window.simularPago = function() {
         ]
     }).then(function(index) {
         if(index === 3 || index === -1) return;
-        
         const servicios = ['Cuota de Vehículo', 'Seguro Automotriz', 'Pago en Comercio QR'];
         pedirMontoEgreso('Pago de Servicio', servicios[index]);
     });
 };
 
-// 3. 支出核心逻辑：询问金额并检查余额
 function pedirMontoEgreso(tipoOperacion, detalle) {
     ons.notification.prompt({
         message: `Ingrese el monto en <b>Dólares (USD)</b> para:<br><br><span style="color:gray;">${detalle}</span>`,
@@ -296,9 +237,7 @@ function pedirMontoEgreso(tipoOperacion, detalle) {
         cancelable: true
     }).then(function(input) {
         const montoOperacion = parseFloat(input);
-        
         if (montoOperacion > 0) {
-            // 【风控检查】如果输入的金额大于账户余额，拒绝交易！
             if (montoOperacion > appState.saldoUSD) {
                 ons.notification.alert(`<b>Fondos insuficientes.</b><br>Tu saldo actual es de $${appState.saldoUSD.toFixed(2)} USD.`);
             } else {
@@ -308,29 +247,189 @@ function pedirMontoEgreso(tipoOperacion, detalle) {
     });
 }
 
-// 4. 执行扣款并同步到 Google Sheets
 function ejecutarEgreso(tipoOperacion, detalle, montoUSD) {
     ons.notification.toast(`Procesando transacción...`, { timeout: 1500 });
-    
     setTimeout(() => {
         const nuevaTx = {
             id: 'TXN-' + Math.floor(Math.random() * 1000000),
-            tipo: 'egreso', // 【关键】标记为 egreso (支出)，UI 会自动把它变成红色负数
+            tipo: 'egreso',
             metodo: tipoOperacion,
             concepto: detalle,
             montoUSD: montoUSD,
             fecha: new Date().toLocaleDateString()
         };
-        
-        // 扣除余额
         appState.saldoUSD -= montoUSD;
         appState.transacciones.push(nuevaTx);
-        
-        // 保存本地数据、更新界面、发送到云端
         guardarDatos();
         actualizarInicio();
         enviarAGoogleSheets(nuevaTx);
-        
         ons.notification.toast('¡Operación exitosa!', { timeout: 2000, animation: 'ascend' });
     }, 1500);
 }
+
+// ==========================================
+// 7. 虚拟车库与计算器 (Catálogo y Simulador)
+// ==========================================
+// 修复图片：使用极稳定的高清占位图服务
+const baseDeDatosVehiculos = [
+    { id: 'v1', marca: 'Toyota', modelo: 'Corolla', anio: 2018, precio: 15000, img: 'https://placehold.co/300x200/0a2540/FFF?text=Toyota+Corolla' },
+    { id: 'v2', marca: 'Ford', modelo: 'Fiesta', anio: 2016, precio: 7500, img: 'https://placehold.co/300x200/0a2540/FFF?text=Ford+Fiesta' },
+    { id: 'v3', marca: 'Hyundai', modelo: 'Tucson', anio: 2020, precio: 22000, img: 'https://placehold.co/300x200/0a2540/FFF?text=Hyundai+Tucson' },
+    { id: 'v4', marca: 'Chevrolet', modelo: 'Spark', anio: 2015, precio: 5000, img: 'https://placehold.co/300x200/0a2540/FFF?text=Chevrolet+Spark' }
+];
+
+let vehiculoSeleccionado = null;
+
+function renderizarCatalogo() {
+    const contenedor = document.getElementById('catalogo-vehiculos');
+    if (!contenedor) return;
+    
+    contenedor.innerHTML = ''; 
+    baseDeDatosVehiculos.forEach(auto => {
+        const tarjeta = document.createElement('div');
+        tarjeta.id = `tarjeta-${auto.id}`;
+        tarjeta.style.cssText = `
+            min-width: 140px; background: white; border-radius: 10px; 
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1); overflow: hidden; 
+            cursor: pointer; transition: transform 0.2s, border 0.2s;
+            border: 2px solid transparent;
+        `;
+        tarjeta.onclick = () => seleccionarVehiculo(auto);
+        tarjeta.innerHTML = `
+            <div style="height: 80px; background-image: url('${auto.img}'); background-size: cover; background-position: center;"></div>
+            <div style="padding: 10px;">
+                <p style="margin: 0; font-size: 12px; color: gray;">${auto.marca} • ${auto.anio}</p>
+                <h4 style="margin: 2px 0 5px 0; font-size: 14px; color: #0a2540;">${auto.modelo}</h4>
+                <p style="margin: 0; font-weight: bold; color: #28a745; font-size: 13px;">$${auto.precio.toLocaleString()}</p>
+            </div>
+        `;
+        contenedor.appendChild(tarjeta);
+    });
+}
+
+window.seleccionarVehiculo = function(auto) {
+    vehiculoSeleccionado = auto;
+    baseDeDatosVehiculos.forEach(v => {
+        document.getElementById(`tarjeta-${v.id}`).style.border = '2px solid transparent';
+    });
+    document.getElementById(`tarjeta-${auto.id}`).style.border = '2px solid #00d4ff';
+    document.getElementById('monto-vehiculo').value = auto.precio;
+    ons.notification.toast(`Seleccionaste: ${auto.marca} ${auto.modelo}`, { timeout: 1000 });
+    calcularEcosistema();
+};
+
+window.limpiarSeleccion = function() {
+    vehiculoSeleccionado = null;
+    baseDeDatosVehiculos.forEach(v => {
+        const tarjeta = document.getElementById(`tarjeta-${v.id}`);
+        if(tarjeta) tarjeta.style.border = '2px solid transparent';
+    });
+};
+
+// 【核心修复】：加入了下拉选择期数(mesesSelect)的动态算法
+window.calcularEcosistema = function() {
+    const inputMonto = document.getElementById('monto-vehiculo').value;
+    const montoVehiculo = parseFloat(inputMonto);
+    
+    // 如果没有输入有效金额，静默返回，不打断滑块
+    if (!montoVehiculo || montoVehiculo < 1000) return;
+
+    const porcentajeEntrada = parseFloat(document.getElementById('rango-entrada').value); 
+    
+    // 获取用户选择的期数 (12, 24, 36, 48)
+    const mesesSelect = document.getElementById('plazo-meses');
+    const meses = mesesSelect ? parseInt(mesesSelect.value) : 24; 
+    
+    // 1. 计算首付
+    const montoEntrada = montoVehiculo * (porcentajeEntrada / 100);
+    // 2. 计算期末尾款 (车辆总价值的 30%)
+    const cuotaBalloon = montoVehiculo * 0.30;
+    // 3. 计算本金
+    const capitalFinanciar = montoVehiculo - montoEntrada - cuotaBalloon;
+    
+    // 4. 动态计算利息 (期数越长利息越高，假设每月1%)
+    const tasaInteresTotal = meses * 0.01; 
+    const totalFinanciado = capitalFinanciar * (1 + tasaInteresTotal);
+    const cuotaMensualUSD = totalFinanciado / meses;
+    const cuotaMensualBS = cuotaMensualUSD * tasaBCV; 
+
+    calculoActual = {
+        montoVehiculo: montoVehiculo,
+        montoEntrada: montoEntrada,
+        cuotaBalloon: cuotaBalloon,
+        cuotaMensualUSD: cuotaMensualUSD
+    };
+
+    document.getElementById('res-entrada').innerText = `$${montoEntrada.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+    document.getElementById('res-balloon').innerText = `$${cuotaBalloon.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+    document.getElementById('res-cuota-usd').innerText = `$${cuotaMensualUSD.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+    document.getElementById('res-cuota-bs').innerText = `Bs ${cuotaMensualBS.toLocaleString('es-VE', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+
+    const textoMeses = document.getElementById('texto-meses-resultado');
+    if(textoMeses) textoMeses.innerText = `(Financiado a ${meses} meses)`;
+
+    document.getElementById('btn-pagar-entrada').style.display = 'block';
+};
+
+window.pagarEntradaDirecto = function() {
+    if (!calculoActual) return;
+    const montoRequerido = calculoActual.montoEntrada;
+
+    if (appState.saldoUSD < montoRequerido) {
+        ons.notification.confirm({
+            message: `Tu saldo actual ($${appState.saldoUSD.toFixed(2)}) es insuficiente para pagar la entrada de $${montoRequerido.toLocaleString()}.<br><br>¿Deseas ir a fondear tu cartera?`,
+            title: 'Fondos Insuficientes',
+            buttonLabels: ['Cancelar', 'Ir a Fondear']
+        }).then(function(res) {
+            if (res === 1) {
+                document.querySelector('ons-tabbar').setActiveTab(0);
+                setTimeout(() => simularFondeo(), 500);
+            }
+        });
+        return;
+    }
+
+    ons.notification.confirm({
+        message: `Se debitarán <b>$${montoRequerido.toLocaleString()}</b> de tu cartera digital para reservar el vehículo mediante contrato inteligente.`,
+        title: 'Confirmar Reserva',
+        buttonLabels: ['Cancelar', 'Aprobar Contrato']
+    }).then(function(res) {
+        if (res === 1) {
+            ejecutarEgreso('Contrato Inteligente', 'Pago de Entrada (Vehículo)', montoRequerido);
+            setTimeout(() => { document.querySelector('ons-tabbar').setActiveTab(0); }, 2000);
+        }
+    });
+};
+
+// ==========================================
+// 8. 初始化与事件监听 (Inicialización)
+// ==========================================
+document.addEventListener('init', async function(event) {
+    if (event.target.id === 'page-inicio') {
+        tasaBCV = await obtenerTasaBCV(); 
+        document.getElementById('tasa-bcv-display').innerText = tasaBCV.toFixed(2); 
+        cargarDatos();
+        actualizarInicio();
+    }
+    
+    if (event.target.id === 'page-simulador') {
+        renderizarCatalogo();
+        const tasaEl = document.getElementById('tasa-bcv-simulador');
+        if(tasaEl) tasaEl.innerText = tasaBCV.toFixed(2);
+    }
+});
+
+// 系统一键重置
+window.resetearApp = function() {
+    ons.notification.confirm({
+        message: '¿Estás seguro de que deseas borrar todo tu historial y volver a $0.00? Esta acción no se puede deshacer.',
+        title: 'Advertencia de Sistema',
+        buttonLabels: ['Cancelar', 'Sí, borrar todo']
+    }).then(function(res) {
+        if (res === 1) { 
+            localStorage.removeItem('ecosistema_data');
+            ons.notification.toast('Datos borrados exitosamente. Reiniciando...', { timeout: 1500 });
+            setTimeout(() => { location.reload(); }, 1500);
+        }
+    });
+};
