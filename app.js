@@ -212,38 +212,94 @@ window.simularTransferencia = function() {
 };
 
 // ==========================================
-// 【新增】更多服务模块 (Hub de Servicios)
+// 【新增】更多服务模块 (Hub de Servicios - 升级版)
 // ==========================================
 window.abrirServicios = function() {
     ons.openActionSheet({
         title: 'Catálogo de Servicios Financieros',
         cancelable: true,
         buttons: [
-            { label: 'Seguro Automotriz ($45/mes)', icon: 'md-shield-check' },
-            { label: 'Crédito Personal ($50/mes)', icon: 'md-balance-wallet' },
+            { label: 'Seguro Automotriz (Pago Anual)', icon: 'md-shield-check' },
+            { label: 'Solicitar Microcrédito (Desembolso Inmediato)', icon: 'md-balance-wallet' },
             { label: 'Cancelar', icon: 'md-close' }
         ]
     }).then(index => {
-        if (index === 0) contratarServicio('seguro_auto', 'Seguro Automotriz', 45, '#28a745');
-        if (index === 1) contratarServicio('credito_personal', 'Crédito Personal', 50, '#f59e0b');
+        if (index === 0) contratarSeguroAnual();
+        if (index === 1) solicitarCreditoPersonal();
     });
 };
 
-function contratarServicio(id, nombre, cuota, color) {
-    // 检查是否已经开通过
-    if (appState.serviciosActivos.some(s => s.id === id)) {
-        ons.notification.alert(`Ya tienes activo el servicio: ${nombre}`);
+// 1. 保险业务：一次性签约年费
+function contratarSeguroAnual() {
+    if (appState.serviciosActivos.some(s => s.id === 'seguro_auto')) {
+        ons.notification.alert('Ya tienes una póliza de seguro activa.');
         return;
     }
+    const cuotaAnual = 350.00; // 设定为合理的年费 $350
     ons.notification.confirm({
-        message: `¿Deseas activar <b>${nombre}</b> por $${cuota.toFixed(2)} mensuales?`,
-        title: 'Activar Servicio'
+        message: `¿Deseas activar el <b>Seguro Automotriz (Cobertura Total)</b> por $${cuotaAnual.toFixed(2)} al año?`,
+        title: 'Seguro Anual'
     }).then(res => {
         if(res === 1) {
-            appState.serviciosActivos.push({ id, nombre, cuota, color, proximoVencimiento: 'En 30 días' });
+            appState.serviciosActivos.push({ 
+                id: 'seguro_auto', nombre: 'Seguro Automotriz (Anual)', cuota: cuotaAnual, 
+                color: '#28a745', tipo: 'anual', proximoVencimiento: 'En 365 días' 
+            });
             guardarDatos();
-            ons.notification.toast('Servicio activado exitosamente', { timeout: 2000 });
+            ons.notification.toast('Póliza anual activada', { timeout: 2000 });
             if(document.getElementById('page-perfil')) renderizarDashboard();
+        }
+    });
+}
+
+// 2. 信贷业务：计算利息 -> 同意合同 -> 钱直接打进余额！
+function solicitarCreditoPersonal() {
+    ons.notification.prompt({
+        message: 'Monto a solicitar (100 - 1000 USD):<br><span style="color:gray; font-size:12px;">Interés: 15% | Plazo: 6 meses</span>',
+        title: 'Microcrédito',
+        buttonLabel: 'Simular'
+    }).then(input => {
+        const montoPrincipal = parseFloat(input);
+        if (montoPrincipal >= 100 && montoPrincipal <= 1000) {
+            const interes = montoPrincipal * 0.15; // 15% 利息
+            const deudaTotal = montoPrincipal + interes;
+            const cuotaMensual = deudaTotal / 6; // 分6个月还清
+
+            ons.notification.confirm({
+                message: `<div style="text-align:left;">
+                            <b>Monto a recibir:</b> <span style="color:#28a745;">+$${montoPrincipal.toFixed(2)}</span><br>
+                            <b>Interés (15%):</b> $${interes.toFixed(2)}<br>
+                            <b>Total a pagar:</b> $${deudaTotal.toFixed(2)}<br><br>
+                            <b style="color:#f59e0b;">Cuota mensual: $${cuotaMensual.toFixed(2)} x 6 meses</b>
+                          </div>`,
+                title: 'Aprobar Contrato',
+                buttonLabels: ['Cancelar', 'Aceptar y Recibir']
+            }).then(res => {
+                if(res === 1) {
+                    // 【核心】1. 立即放款：将本金直接加入钱包余额！
+                    appState.saldoUSD += montoPrincipal;
+                    
+                    // 【核心】2. 记入收入流水
+                    const nuevaTx = {
+                        id: 'TXN-' + Math.floor(Math.random() * 1000000), tipo: 'ingreso',
+                        metodo: 'Desembolso', concepto: 'Crédito Personal', montoUSD: montoPrincipal, fecha: new Date().toLocaleDateString()
+                    };
+                    appState.transacciones.push(nuevaTx);
+
+                    // 【核心】3. 生成分期负债账单
+                    appState.serviciosActivos.push({
+                        id: 'credito_' + Date.now(), nombre: 'Cuota Microcrédito', cuota: cuotaMensual,
+                        color: '#f59e0b', tipo: 'credito', cuotasRestantes: 6, proximoVencimiento: 'En 30 días'
+                    });
+
+                    guardarDatos();
+                    actualizarInicio(); // 立刻刷新首页余额，让用户看到钱进来了
+                    ons.notification.toast('¡Fondos acreditados en tu billetera!', { timeout: 2500 });
+                    if(document.getElementById('page-perfil')) renderizarDashboard();
+                }
+            });
+        } else if (input !== null) {
+            ons.notification.alert('Monto inválido. Debe ser entre $100 y $1,000.');
         }
     });
 }
@@ -268,15 +324,32 @@ window.simularPago = function() {
         });
     }
 
-    // 2. 如果开通了其他服务（保险、个贷等）
+    // 2. 如果开通了其他服务（保险年费、个贷分期等）
     appState.serviciosActivos.forEach(servicio => {
-        // 如果这个月还没付过
-        if (servicio.proximoVencimiento !== 'Pagado este mes') {
+        // 只要这个月/今年还没付过，就显示在待缴账单里
+        if (!servicio.proximoVencimiento.includes('Pagado')) {
+            let labelTexto = `${servicio.nombre} ($${servicio.cuota.toFixed(2)})`;
+            // 如果是贷款，专门显示还剩几期
+            if (servicio.tipo === 'credito') labelTexto = `${servicio.nombre} (${servicio.cuotasRestantes} rest.) - $${servicio.cuota.toFixed(2)}`;
+
             opcionesPago.push({
-                label: `${servicio.nombre} ($${servicio.cuota.toFixed(2)})`,
+                label: labelTexto,
                 icon: 'md-check-circle',
                 action: () => procesarPagoInteligente(servicio.nombre, servicio.cuota, () => {
-                    servicio.proximoVencimiento = 'Pagado este mes'; // 更新状态
+                    // 扣款成功后的状态流转逻辑
+                    if (servicio.tipo === 'credito') {
+                        servicio.cuotasRestantes -= 1;
+                        if (servicio.cuotasRestantes <= 0) {
+                            // 贷款全部还清了！从系统中自动销毁这笔债务
+                            appState.serviciosActivos = appState.serviciosActivos.filter(s => s.id !== servicio.id);
+                        } else {
+                            servicio.proximoVencimiento = 'Pagado este mes';
+                        }
+                    } else if (servicio.tipo === 'anual') {
+                        servicio.proximoVencimiento = 'Pagado este año'; // 年费特有状态
+                    } else {
+                        servicio.proximoVencimiento = 'Pagado este mes';
+                    }
                 })
             });
         }
@@ -378,10 +451,17 @@ function ejecutarEgreso(tipoOperacion, detalle, montoUSD) {
 // 7. 虚拟车库与计算器 (Catálogo y Simulador)
 // ==========================================
 const baseDeDatosVehiculos = [
+    // 原有的 4 款经典车型
     { id: 'v1', marca: 'Toyota', modelo: 'Corolla', anio: 2018, precio: 15000, img: 'https://placehold.co/300x200/ffffff/4a90e2?text=Toyota+Corolla' },
     { id: 'v2', marca: 'Ford', modelo: 'Fiesta', anio: 2016, precio: 7500, img: 'https://placehold.co/300x200/ffffff/4a90e2?text=Ford+Fiesta' },
     { id: 'v3', marca: 'Hyundai', modelo: 'Tucson', anio: 2020, precio: 22000, img: 'https://placehold.co/300x200/ffffff/4a90e2?text=Hyundai+Tucson' },
-    { id: 'v4', marca: 'Chevrolet', modelo: 'Spark', anio: 2015, precio: 5000, img: 'https://placehold.co/300x200/ffffff/4a90e2?text=Chevrolet+Spark' }
+    { id: 'v4', marca: 'Chevrolet', modelo: 'Spark', anio: 2015, precio: 5000, img: 'https://placehold.co/300x200/ffffff/4a90e2?text=Chevrolet+Spark' },
+    
+    // 【新增】4 款极具吸引力的热销车型
+    { id: 'v5', marca: 'Honda', modelo: 'Civic', anio: 2019, precio: 17500, img: 'https://placehold.co/300x200/ffffff/4a90e2?text=Honda+Civic' },
+    { id: 'v6', marca: 'Nissan', modelo: 'Versa', anio: 2018, precio: 10500, img: 'https://placehold.co/300x200/ffffff/4a90e2?text=Nissan+Versa' },
+    { id: 'v7', marca: 'Jeep', modelo: 'Cherokee', anio: 2017, precio: 19000, img: 'https://placehold.co/300x200/ffffff/4a90e2?text=Jeep+Cherokee' },
+    { id: 'v8', marca: 'Toyota', modelo: 'Hilux', anio: 2021, precio: 28500, img: 'https://placehold.co/300x200/ffffff/4a90e2?text=Toyota+Hilux' } // 极其保值的皮卡
 ];
 
 
@@ -605,12 +685,17 @@ function renderizarDashboard() {
         coloresGrafico.push(s.color);
         totalMensual += s.cuota;
 
+        // 智能显示副标题说明
+        let subtitulo = s.tipo === 'anual' ? 'Renovación anual' : 'Renovación mensual';
+        if (s.tipo === 'credito') subtitulo = `Faltan ${s.cuotasRestantes} cuotas`;
+        if (s.proximoVencimiento.includes('Pagado')) subtitulo = s.proximoVencimiento; // 如果已付款，覆盖文字
+
         if(listaVencimientos) listaVencimientos.innerHTML += `
             <ons-list-item>
                 <div class="left"><ons-icon icon="md-check-circle" style="color: ${s.color};"></ons-icon></div>
                 <div class="center">
                     <span class="list-item__title" style="font-weight: 600; font-size: 13px;">${s.nombre}</span>
-                    <span class="list-item__subtitle" style="font-size: 11px; color: ${s.proximoVencimiento === 'Pagado este mes' ? '#28a745' : 'gray'};">${s.proximoVencimiento}</span>
+                    <span class="list-item__subtitle" style="font-size: 11px; color: ${s.proximoVencimiento.includes('Pagado') ? '#28a745' : 'gray'};">${subtitulo}</span>
                 </div>
                 <div class="right" style="font-weight: 700;">$${s.cuota.toFixed(2)}</div>
             </ons-list-item>

@@ -267,6 +267,16 @@ ons-input input, ons-select select {
     font-size: 15px;
 }
 
+/* 【核心修复】解决下拉菜单文字“上下被裁切”的问题 */
+ons-select, ons-select select {
+    width: 100% !important;
+    height: auto !important; /* 打破系统默认的死板高度 */
+    min-height: 45px !important; /* 强制拉高容器，提供完美的手机端触摸区域 */
+    line-height: normal !important; /* 重置行高，防止文字被上下挤压 */
+    padding-top: 10px !important; /* 确保上下有相等的内边距 */
+    padding-bottom: 10px !important;
+}
+
 ons-input input:focus, ons-select select:focus {
     border: 1px solid var(--accent-color) !important;
     box-shadow: 0 0 8px rgba(74, 144, 226, 0.1) !important;
