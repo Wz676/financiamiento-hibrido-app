@@ -4,10 +4,12 @@
 let appState = {
     saldoUSD: 0.00,
     transacciones: [],
-    prestamoActivo: null // 用于永久记录用户当前成功的贷款状态
+    prestamoActivo: null,
+    serviciosActivos: [], // 【新增】用户开通的额外服务（如保险）
+    pagosRealizados: []   // 【新增】存放成功支付的账单记录
 };
 
-let tasaBCV = 36.35; 
+let tasaBCV = 470.35; 
 let monedaVista = 'USD'; 
 let calculoActual = null; 
 let vehiculoSeleccionado = null;
@@ -42,7 +44,10 @@ function cargarDatos() {
             appState.transacciones = datosGuardados.transacciones || [];
         } else {
             appState = datosGuardados; 
-            if(appState.prestamoActivo === undefined) appState.prestamoActivo = null;
+            // 【安全升级】确保旧用户的数据库里也会自动生成这两个新数组
+            if(!appState.prestamoActivo) appState.prestamoActivo = null;
+            if(!appState.serviciosActivos) appState.serviciosActivos = [];
+            if(!appState.pagosRealizados) appState.pagosRealizados = [];
         }
     }
 }
@@ -206,98 +211,131 @@ window.simularTransferencia = function() {
     });
 };
 
+// ==========================================
+// 【新增】更多服务模块 (Hub de Servicios)
+// ==========================================
+window.abrirServicios = function() {
+    ons.openActionSheet({
+        title: 'Catálogo de Servicios Financieros',
+        cancelable: true,
+        buttons: [
+            { label: 'Seguro Automotriz ($45/mes)', icon: 'md-shield-check' },
+            { label: 'Crédito Personal ($50/mes)', icon: 'md-balance-wallet' },
+            { label: 'Cancelar', icon: 'md-close' }
+        ]
+    }).then(index => {
+        if (index === 0) contratarServicio('seguro_auto', 'Seguro Automotriz', 45, '#28a745');
+        if (index === 1) contratarServicio('credito_personal', 'Crédito Personal', 50, '#f59e0b');
+    });
+};
+
+function contratarServicio(id, nombre, cuota, color) {
+    // 检查是否已经开通过
+    if (appState.serviciosActivos.some(s => s.id === id)) {
+        ons.notification.alert(`Ya tienes activo el servicio: ${nombre}`);
+        return;
+    }
+    ons.notification.confirm({
+        message: `¿Deseas activar <b>${nombre}</b> por $${cuota.toFixed(2)} mensuales?`,
+        title: 'Activar Servicio'
+    }).then(res => {
+        if(res === 1) {
+            appState.serviciosActivos.push({ id, nombre, cuota, color, proximoVencimiento: 'En 30 días' });
+            guardarDatos();
+            ons.notification.toast('Servicio activado exitosamente', { timeout: 2000 });
+            if(document.getElementById('page-perfil')) renderizarDashboard();
+        }
+    });
+}
+
 window.simularPago = function() {
     if (appState.saldoUSD <= 0) {
         ons.notification.alert('No tienes saldo suficiente para realizar pagos.');
         return;
     }
-    ons.openActionSheet({
-        title: 'Seleccione un servicio a pagar',
-        cancelable: true,
-        buttons: [
-            { label: 'Cuota de Vehículo (Híbrido)', icon: 'md-car' },
-            { label: 'Seguro Automotriz', icon: 'md-shield-check' },
-            { label: 'Escanear QR en Comercio', icon: 'md-center-focus-strong' },
-            { label: 'Cancelar', icon: 'md-close' }
-        ]
-    }).then(function(index) {
-        if(index === 3 || index === -1) return;
-        
-        // 场景 1：支付汽车月供
-        if (index === 0) {
-            if (!appState.prestamoActivo) {
-                ons.notification.alert('No tienes ningún financiamiento activo.');
-                return;
-            }
-            if (appState.prestamoActivo.cuotasRestantes <= 0) {
-                ons.notification.alert('¡Ya has pagado todas las cuotas!');
-                return;
-            }
-            
-            const montoAPagar = appState.prestamoActivo.cuotaMensual;
-            const msj = `<div style="text-align:left; margin-top:10px;">
-                            <p style="color:gray; font-size:12px; margin:0;">Servicio:</p>
-                            <h4 style="margin:0 0 10px 0;">Mensualidad Vehículo (${appState.prestamoActivo.cuotasRestantes} restantes)</h4>
-                            <p style="color:gray; font-size:12px; margin:0;">Monto a debitar:</p>
-                            <h2 style="color:#4a90e2; margin:0;">$${montoAPagar.toFixed(2)}</h2>
-                         </div>`;
-                         
-            ons.notification.confirm({
-                message: msj,
-                title: 'Confirmar Pago',
-                buttonLabels: ['Cancelar', 'Pagar Ahora']
-            }).then(res => {
-                if(res === 1) {
-                    if(appState.saldoUSD < montoAPagar) {
-                        ons.notification.alert('Saldo insuficiente.'); return;
-                    }
-                    ejecutarEgreso('Pago de Cuota', 'Cuota de Vehículo', montoAPagar);
-                    appState.prestamoActivo.cuotasRestantes -= 1; 
-                    guardarDatos();
-                    if(document.getElementById('page-perfil')) renderizarDashboard();
-                }
-            });
-        } 
-        // 场景 2：支付汽车保险 
-        else if (index === 1) {
-            const montoSeguro = 45.00; 
-            const msjSeguro = `<div style="text-align:left; margin-top:10px;">
-                                <p style="color:gray; font-size:12px; margin:0;">Servicio:</p>
-                                <h4 style="margin:0 0 10px 0;">Seguro Automotriz</h4>
-                                <p style="color:gray; font-size:12px; margin:0;">Monto a debitar:</p>
-                                <h2 style="color:#4a90e2; margin:0;">$${montoSeguro.toFixed(2)}</h2>
-                               </div>`;
-                               
-            ons.notification.confirm({
-                message: msjSeguro,
-                title: 'Confirmar Pago',
-                buttonLabels: ['Cancelar', 'Pagar Ahora']
-            }).then(res => {
-                if(res === 1) {
-                    if(appState.saldoUSD < montoSeguro) {
-                        ons.notification.alert('Saldo insuficiente.'); return;
-                    }
-                    ejecutarEgreso('Pago de Seguro', 'Seguro Automotriz', montoSeguro);
-                }
-            });
-        }
-        // 场景 3：扫码付款
-        else if (index === 2) {
-            ons.notification.prompt({
-                message: `Ingrese el monto a pagar (USD):`,
-                title: 'Pago QR',
-                buttonLabel: 'Confirmar'
-            }).then(input => {
-                const monto = parseFloat(input);
-                if (monto > 0 && monto <= appState.saldoUSD) {
-                    ejecutarEgreso('Pago en Comercio', 'Pago QR', monto);
-                } else if (monto > appState.saldoUSD) {
-                    ons.notification.alert('Saldo insuficiente.');
-                }
+
+    // 智能动态生成用户的“待付款账单”
+    let opcionesPago = [];
+    
+    // 1. 如果有车贷
+    if (appState.prestamoActivo && appState.prestamoActivo.cuotasRestantes > 0) {
+        opcionesPago.push({ 
+            label: `Mensualidad Vehículo ($${appState.prestamoActivo.cuotaMensual.toFixed(2)})`, 
+            icon: 'md-car',
+            action: () => procesarPagoInteligente('Cuota de Vehículo', appState.prestamoActivo.cuotaMensual, () => {
+                appState.prestamoActivo.cuotasRestantes -= 1;
+            })
+        });
+    }
+
+    // 2. 如果开通了其他服务（保险、个贷等）
+    appState.serviciosActivos.forEach(servicio => {
+        // 如果这个月还没付过
+        if (servicio.proximoVencimiento !== 'Pagado este mes') {
+            opcionesPago.push({
+                label: `${servicio.nombre} ($${servicio.cuota.toFixed(2)})`,
+                icon: 'md-check-circle',
+                action: () => procesarPagoInteligente(servicio.nombre, servicio.cuota, () => {
+                    servicio.proximoVencimiento = 'Pagado este mes'; // 更新状态
+                })
             });
         }
     });
+
+    // 3. 永远保留的扫码支付
+    opcionesPago.push({ label: 'Escanear QR Comercio', icon: 'md-center-focus-strong', action: pagarQR });
+    opcionesPago.push({ label: 'Cancelar', icon: 'md-close', action: () => {} });
+
+    // 弹出用户的真实账单
+    if (opcionesPago.length === 2) { // 只有扫码和取消，说明没账单
+        ons.notification.alert('¡Estás al día! No tienes deudas ni servicios pendientes de pago.');
+        return;
+    }
+
+    ons.openActionSheet({
+        title: 'Seleccione un recibo pendiente',
+        cancelable: true,
+        buttons: opcionesPago.map(o => ({ label: o.label, icon: o.icon }))
+    }).then(index => {
+        if (index !== -1 && opcionesPago[index]) {
+            opcionesPago[index].action();
+        }
+    });
 };
+
+function procesarPagoInteligente(nombreServicio, monto, callbackExito) {
+    ons.notification.confirm({
+        message: `Se debitarán <b>$${monto.toFixed(2)}</b> por el pago de: <br>${nombreServicio}`,
+        title: 'Confirmar Pago',
+        buttonLabels: ['Cancelar', 'Pagar Ahora']
+    }).then(res => {
+        if(res === 1) {
+            if(appState.saldoUSD < monto) {
+                ons.notification.alert('Saldo insuficiente.'); return;
+            }
+            ejecutarEgreso('Pago de Servicio', nombreServicio, monto);
+            
+            // 【核心：转移到已付款记录】
+            appState.pagosRealizados.push({
+                nombre: nombreServicio,
+                monto: monto,
+                fecha: new Date().toLocaleDateString()
+            });
+            
+            callbackExito(); // 执行更新逻辑（如减扣期数）
+            guardarDatos();
+            if(document.getElementById('page-perfil')) renderizarDashboard();
+        }
+    });
+}
+
+function pagarQR() {
+    ons.notification.prompt({ message: `Ingrese el monto (USD):`, title: 'Pago QR', buttonLabel: 'Confirmar' })
+    .then(input => {
+        const monto = parseFloat(input);
+        if (monto > 0 && monto <= appState.saldoUSD) ejecutarEgreso('Pago en Comercio', 'Pago QR', monto);
+    });
+}
 
 function pedirMontoEgreso(tipoOperacion, detalle) {
     ons.notification.prompt({
@@ -518,78 +556,114 @@ window.iniciarKYC = function() {
     });
 };
 
+// ==========================================
+// 【重构核心】看板与图表 (Distribución de Gastos Mensuales)
+// ==========================================
 function renderizarDashboard() {
     const ctx = document.getElementById('graficoFinanciamiento');
     if (!ctx) return;
-    
     if (graficoInstancia) graficoInstancia.destroy();
 
+    // 将图表升级为：“我的每月固定支出结构”
+    let labelsGrafico = [];
     let datosGrafico = [];
-    let montoTotal = 0;
+    let coloresGrafico = [];
+    let totalMensual = 0;
+
+    const listaVencimientos = document.getElementById('lista-vencimientos');
+    const listaPagados = document.getElementById('lista-pagados');
     const leyendaEl = document.getElementById('chart-leyenda');
-    const lista = document.getElementById('lista-vencimientos');
 
-    if (appState.prestamoActivo) {
-        const p = appState.prestamoActivo;
-        const sumatoriaCuotas = p.cuotaMensual * p.cuotasRestantes;
-        datosGrafico = [p.entrada, sumatoriaCuotas, p.balloon];
-        montoTotal = p.montoTotal;
-        
-        if(leyendaEl) {
-            leyendaEl.innerHTML = `
-                <div style="display:flex; justify-content:space-between; font-size:11px; margin-bottom:5px;">
-                    <span style="color:#28a745; font-weight:700;">● Entrada</span>
-                    <span style="font-weight:700;">$${p.entrada.toLocaleString('en-US', {minimumFractionDigits:2})}</span>
-                </div>
-                <div style="display:flex; justify-content:space-between; font-size:11px; margin-bottom:5px;">
-                    <span style="color:#4a90e2; font-weight:700;">● Cuotas (${p.cuotasRestantes} meses)</span>
-                    <span style="font-weight:700;">$${sumatoriaCuotas.toLocaleString('en-US', {minimumFractionDigits:2})}</span>
-                </div>
-                <div style="display:flex; justify-content:space-between; font-size:11px;">
-                    <span style="color:#94a3b8; font-weight:700;">● Balloon</span>
-                    <span style="font-weight:700;">$${p.balloon.toLocaleString('en-US', {minimumFractionDigits:2})}</span>
-                </div>
-            `;
-        }
+    if(listaVencimientos) listaVencimientos.innerHTML = '';
+    if(listaPagados) listaPagados.innerHTML = '';
+    if(leyendaEl) leyendaEl.innerHTML = '';
 
-        if(lista) {
-            lista.innerHTML = `
+    // 1. 注入车贷数据
+    if (appState.prestamoActivo && appState.prestamoActivo.cuotasRestantes > 0) {
+        const cuotaAuto = appState.prestamoActivo.cuotaMensual;
+        labelsGrafico.push('Vehículo');
+        datosGrafico.push(cuotaAuto);
+        coloresGrafico.push('#4a90e2');
+        totalMensual += cuotaAuto;
+
+        if(listaVencimientos) listaVencimientos.innerHTML += `
+            <ons-list-item>
+                <div class="left"><ons-icon icon="md-car" style="color: #4a90e2;"></ons-icon></div>
+                <div class="center">
+                    <span class="list-item__title" style="font-weight: 600; font-size: 13px;">Mensualidad Vehículo</span>
+                    <span class="list-item__subtitle" style="font-size: 11px; color:#f59e0b;">Faltan ${appState.prestamoActivo.cuotasRestantes} cuotas</span>
+                </div>
+                <div class="right" style="font-weight: 700;">$${cuotaAuto.toFixed(2)}</div>
+            </ons-list-item>
+        `;
+    }
+
+    // 2. 注入新增服务数据
+    appState.serviciosActivos.forEach(s => {
+        labelsGrafico.push(s.nombre);
+        datosGrafico.push(s.cuota);
+        coloresGrafico.push(s.color);
+        totalMensual += s.cuota;
+
+        if(listaVencimientos) listaVencimientos.innerHTML += `
+            <ons-list-item>
+                <div class="left"><ons-icon icon="md-check-circle" style="color: ${s.color};"></ons-icon></div>
+                <div class="center">
+                    <span class="list-item__title" style="font-weight: 600; font-size: 13px;">${s.nombre}</span>
+                    <span class="list-item__subtitle" style="font-size: 11px; color: ${s.proximoVencimiento === 'Pagado este mes' ? '#28a745' : 'gray'};">${s.proximoVencimiento}</span>
+                </div>
+                <div class="right" style="font-weight: 700;">$${s.cuota.toFixed(2)}</div>
+            </ons-list-item>
+        `;
+    });
+
+    // 3. 渲染已付款记录
+    const pagosMes = [...appState.pagosRealizados].reverse(); // 最新的在最上面
+    if (pagosMes.length > 0) {
+        pagosMes.forEach(pago => {
+            if(listaPagados) listaPagados.innerHTML += `
                 <ons-list-item>
-                    <div class="left"><ons-icon icon="md-car" style="color: #4a90e2;"></ons-icon></div>
+                    <div class="left"><ons-icon icon="md-check-all" style="color: #28a745;"></ons-icon></div>
                     <div class="center">
-                        <span class="list-item__title" style="font-weight: 600; font-size: 13px;">Mensualidad Vehículo</span>
-                        <span class="list-item__subtitle" style="font-size: 11px; color:#f59e0b;">Vence en 15 días</span>
+                        <span class="list-item__title" style="font-weight: 600; font-size: 13px; text-decoration: line-through; color: gray;">${pago.nombre}</span>
+                        <span class="list-item__subtitle" style="font-size: 11px;">Pagado el ${pago.fecha}</span>
                     </div>
-                    <div class="right" style="font-weight: 700;">$${p.cuotaMensual.toFixed(2)}</div>
-                </ons-list-item>
-                <ons-list-item>
-                    <div class="left"><ons-icon icon="md-shield-check" style="color: #28a745;"></ons-icon></div>
-                    <div class="center">
-                        <span class="list-item__title" style="font-weight: 600; font-size: 13px;">Seguro Automotriz</span>
-                        <span class="list-item__subtitle" style="font-size: 11px;">Renovación mensual</span>
-                    </div>
-                    <div class="right" style="font-weight: 700;">$45.00</div>
+                    <div class="right" style="font-weight: 700; color: #28a745;">$${pago.monto.toFixed(2)}</div>
                 </ons-list-item>
             `;
-        }
+        });
     } else {
-        datosGrafico = [1, 1, 1]; 
-        document.getElementById('chart-total-value').innerText = '$0';
-        if(leyendaEl) leyendaEl.innerHTML = '';
-        if(lista) lista.innerHTML = `<div style="text-align:center; padding: 20px; color: gray; font-size: 12px;">No tienes servicios activos.</div>`;
+        if(listaPagados) listaPagados.innerHTML = `<div style="text-align:center; padding: 10px; color: gray; font-size: 12px;">No has realizado pagos este mes.</div>`;
     }
 
-    if (appState.prestamoActivo) {
-        document.getElementById('chart-total-value').innerText = `$${montoTotal.toLocaleString()}`;
+    // 图表数据兜底 (如果没有服务)
+    if (datosGrafico.length === 0) {
+        datosGrafico = [1];
+        coloresGrafico = ['#edf2f7'];
+        if(listaVencimientos) listaVencimientos.innerHTML = `<div style="text-align:center; padding: 20px; color: gray; font-size: 12px;">No tienes servicios activos.</div>`;
+    } else {
+        // 生成极简图例
+        labelsGrafico.forEach((label, i) => {
+            if(leyendaEl) leyendaEl.innerHTML += `
+                <div style="display:flex; justify-content:space-between; font-size:11px; margin-bottom:5px;">
+                    <span style="color:${coloresGrafico[i]}; font-weight:700;">● ${label}</span>
+                    <span style="font-weight:700;">$${datosGrafico[i].toFixed(2)}</span>
+                </div>
+            `;
+        });
     }
 
+    const totalEl = document.getElementById('chart-total-value');
+    if(totalEl) totalEl.innerText = `$${totalMensual.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+
+    // 绘制图表 (加入智能金额格式化拦截器)
     graficoInstancia = new Chart(ctx, {
         type: 'doughnut',
         data: {
-            labels: ['Entrada', 'Cuotas', 'Balloon'],
+            labels: labelsGrafico,
             datasets: [{
                 data: datosGrafico,
-                backgroundColor: appState.prestamoActivo ? ['#28a745', '#4a90e2', '#94a3b8'] : ['#edf2f7', '#edf2f7', '#edf2f7'],
+                backgroundColor: coloresGrafico,
                 borderWidth: 0,
                 hoverOffset: 4
             }]
@@ -598,9 +672,25 @@ function renderizarDashboard() {
             responsive: true,
             maintainAspectRatio: false,
             cutout: '75%', 
-            plugins: {
-                legend: { display: false } 
-            }
+            plugins: { 
+                legend: { display: false },
+                // 【核心修复】强行接管鼠标悬浮/手指点击图表时弹出的黑框，格式化为 2 位小数
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            let label = context.label || '';
+                            if (label) {
+                                label += ': ';
+                            }
+                            if (context.raw !== null) {
+                                // 强制转换为标准的 2 位小数货币格式
+                                label += '$' + parseFloat(context.raw).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+                            }
+                            return label;
+                        }
+                    }
+                }
+            } 
         }
     });
 }

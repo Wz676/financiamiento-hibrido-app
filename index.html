@@ -59,7 +59,7 @@
                 </div>
             </div>
 
-            <div style="display: flex; justify-content: space-around; padding: 25px 15px 10px 15px;">
+            <div style="display: flex; justify-content: space-around; padding: 25px 10px 10px 10px;">
                 <div class="action-btn" onclick="simularFondeo()" style="text-align: center; cursor: pointer; transition: transform 0.2s;">
                     <ons-fab style="background-color: #e0f7fa; color: #0a2540; box-shadow: 0 4px 6px rgba(0,0,0,0.1);"><ons-icon icon="md-plus"></ons-icon></ons-fab>
                     <p style="font-size: 12px; margin-top: 8px; color: #333; font-weight: bold;">Fondear</p>
@@ -71,6 +71,10 @@
                 <div class="action-btn" onclick="simularPago()" style="text-align: center; cursor: pointer; transition: transform 0.2s;">
                     <ons-fab style="background-color: #e0f7fa; color: #0a2540; box-shadow: 0 4px 6px rgba(0,0,0,0.1);"><ons-icon icon="md-money-box"></ons-icon></ons-fab>
                     <p style="font-size: 12px; margin-top: 8px; color: #333; font-weight: bold;">Pagar</p>
+                </div>
+                <div class="action-btn" onclick="abrirServicios()" style="text-align: center; cursor: pointer; transition: transform 0.2s;">
+                    <ons-fab style="background-color: #fff3cd; color: #f59e0b; box-shadow: 0 4px 6px rgba(0,0,0,0.1);"><ons-icon icon="md-apps"></ons-icon></ons-fab>
+                    <p style="font-size: 12px; margin-top: 8px; color: #333; font-weight: bold;">Servicios</p>
                 </div>
             </div>
 
@@ -202,6 +206,10 @@
                 <ons-list-header>Próximos Vencimientos</ons-list-header>
                 <ons-list id="lista-vencimientos" style="background: transparent; margin-bottom: 20px;">
                     </ons-list>
+
+                <ons-list-header style="margin-top: 10px;">Pagos Realizados (Este mes)</ons-list-header>
+                <ons-list id="lista-pagados" style="background: transparent; margin-bottom: 20px;">
+                    </ons-list>    
 
                 <ons-list-header>Configuración del Sistema</ons-list-header>
                 <ons-list style="border-radius: 12px; overflow: hidden; margin-bottom: 25px; background: var(--bg-color-alt); box-shadow: 0 4px 6px rgba(0,0,0,0.03); border: 1px solid var(--border-color);">
