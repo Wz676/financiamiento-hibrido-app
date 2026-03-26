@@ -1,6 +1,4 @@
-// ==========================================
 // 1. 系统核心状态 (ESTADO GLOBAL)
-// ==========================================
 let appState = {
     saldoUSD: 0.00,
     transacciones: [],
@@ -9,7 +7,7 @@ let appState = {
     pagosRealizados: []   // 【新增】存放成功支付的账单记录
 };
 
-let tasaBCV = 470.35; 
+let tasaBCV = 466.60; 
 let monedaVista = 'USD'; 
 let calculoActual = null; 
 let vehiculoSeleccionado = null;
@@ -28,7 +26,7 @@ async function obtenerTasaBCV() {
         return parseFloat(tasaReal);
     } catch (error) {
         console.warn("API del BCV no disponible.", error);
-        return 470.35; // 备用汇率
+        return 466.60; // 备用汇率
     }
 }
 
